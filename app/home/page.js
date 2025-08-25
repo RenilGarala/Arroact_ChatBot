@@ -1,6 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import React from 'react';
+import React from "react";
 import { useRouter } from "next/navigation";
 
 const home = () => {
@@ -15,7 +15,7 @@ const home = () => {
     },
   ]);
   const messagesEndRef = useRef(null);
-   const router = useRouter();
+  const router = useRouter();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -152,14 +152,27 @@ const home = () => {
   };
 
   return (
-     <div className="h-screen flex flex-col bg-neutral-950 text-white">
+    <div className="h-screen flex flex-col bg-neutral-950 text-white">
       <header className="fixed top-0 left-0 right-0 z-10 bg-neutral-900/90 backdrop-blur-md border-b border-neutral-800">
-        
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center relative justify-center">
-          <button  onClick={() => router.push("/")}  className="px-4 py-2 absolute right-full bg-white text-black font-medium rounded-xl shadow hover:bg-neutral-200 transition">
-          Back
-        </button>
-          <h1 className="text-2xl font-semibold tracking-wide text-white">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+          <button
+            onClick={() => router.push("/")}
+            className="px-3 py-2 sm:px-4 sm:py-2 bg-white text-black font-medium rounded-lg sm:rounded-xl shadow hover:bg-neutral-200 transition-colors flex items-center gap-2 order-1 sm:order-2"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="sm:w-4 sm:h-4"
+            >
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+            <span className="hidden sm:inline">Back</span>
+          </button>
+          <h1 className="text-2xl font-semibold tracking-wide text-white order-2 sm:order-1">
             Arroact ChatBot
           </h1>
         </div>
@@ -252,7 +265,7 @@ const home = () => {
         </div>
       </footer>
     </div>
-  )
-}
+  );
+};
 
-export default home
+export default home;
