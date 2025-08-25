@@ -1,102 +1,241 @@
-import Image from "next/image";
+"use client";
+import { useState, useRef, useEffect } from "react";
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [messages, setMessages] = useState([
+    {
+      id: 1,
+      type: "ai",
+      content: "Hi there! I'm your AI companion. How are you doing today? 💕",
+      timestamp: new Date().toLocaleTimeString()
+    }
+  ]);
+  const messagesEndRef = useRef(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const handleStreamChat = async () => {
+    if (!message.trim()) return;
+    
+    setLoading(true);
+    
+    // Add user message to chat
+    const userMessage = {
+      id: Date.now(),
+      type: "user",
+      content: message.trim(),
+      timestamp: new Date().toLocaleTimeString()
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    const currentMessage = message.trim();
+    setMessage("");
+    
+    // Add AI message placeholder
+    const aiMessageId = Date.now() + 1;
+    const aiMessage = {
+      id: aiMessageId,
+      type: "ai",
+      content: "",
+      timestamp: new Date().toLocaleTimeString()
+    };
+    
+    setMessages(prev => [...prev, aiMessage]);
+    
+    try {
+      // Prepare message history for API (exclude system messages and current user message)
+      const messageHistory = messages.filter(msg => msg.content.trim() !== "").map(msg => ({
+        type: msg.type,
+        content: msg.content
+      }));
+
+      const res = await fetch("/api/chat-stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          message: currentMessage,
+          messageHistory: messageHistory,
+          conversationId: 'default'
+        }),
+      });
+      
+      if (!res.body) {
+        throw new Error('No response body');
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        
+        // Keep the last incomplete line in buffer
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.type === 'chunk' && data.content) {
+                setMessages(prev => 
+                  prev.map(msg => 
+                    msg.id === aiMessageId 
+                      ? { ...msg, content: msg.content + data.content }
+                      : msg
+                  )
+                );
+              } else if (data.type === 'done') {
+                // Stream completed - update with final response to ensure consistency
+                setMessages(prev => 
+                  prev.map(msg => 
+                    msg.id === aiMessageId 
+                      ? { ...msg, content: data.fullResponse }
+                      : msg
+                  )
+                );
+                break;
+              } else if (data.type === 'error') {
+                setMessages(prev => 
+                  prev.map(msg => 
+                    msg.id === aiMessageId 
+                      ? { ...msg, content: data.content }
+                      : msg
+                  )
+                );
+                break;
+              }
+            } catch (parseError) {
+              console.error('Error parsing SSE data:', parseError);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Stream error:', error);
+      setMessages(prev => 
+        prev.map(msg => 
+          msg.id === aiMessageId 
+            ? { ...msg, content: "Sorry, I'm having trouble connecting right now. Please try again! 💔" }
+            : msg
+        )
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleStreamChat();
+    }
+  };
+
+  return (
+    <div className="h-screen flex flex-col bg-gradient-to-br from-pink-50 via-purple-50 to-indigo-50">
+      {/* Fixed Header */}
+      <header className="fixed top-0 left-0 right-0 z-10 bg-white/80 backdrop-blur-md border-b border-pink-100 shadow-sm">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-center gap-3">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent">
+            Your AI Girlfriend
+          </h1>
+        </div>
+      </header>
+
+      {/* Scrollable Main Content */}
+      <main className="flex-1 overflow-hidden pt-20 pb-24">
+        <div className="h-full overflow-y-auto px-4 py-6">
+          <div className="max-w-4xl mx-auto space-y-6">
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div className={`max-w-[80%] sm:max-w-[70%] flex flex-col gap-1`}>
+                  <div
+                    className={`p-4 rounded-2xl shadow-sm ${
+                      msg.type === 'user'
+                        ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-sm'
+                        : 'bg-white border border-pink-100 text-gray-800 rounded-bl-sm'
+                    }`}
+                  >
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                      {msg.content}
+                    </p>
+                  </div>
+                  <span
+                    className={`text-xs text-gray-500 px-2 ${
+                      msg.type === 'user' ? 'text-right' : 'text-left'
+                    }`}
+                  >
+                    {msg.timestamp}
+                  </span>
+                </div>
+              </div>
+            ))}
+            
+            {loading && (
+              <div className="flex justify-start">
+                <div className="bg-white border border-pink-100 rounded-2xl rounded-bl-sm p-4 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                      <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                    </div>
+                    <span className="text-sm text-gray-500">Typing...</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div ref={messagesEndRef} />
+          </div>
         </div>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+
+      {/* Fixed Footer */}
+      <footer className="fixed bottom-0 left-0 right-0 z-10 bg-white/80 backdrop-blur-md border-t border-pink-100 shadow-lg">
+        <div className="max-w-4xl mx-auto p-4">
+          <div className="flex items-center gap-3 bg-white rounded-2xl shadow-sm border border-pink-100 p-2">
+            <input
+              type="text"
+              onChange={(e) => setMessage(e.target.value)}
+              value={message}
+              onKeyPress={handleKeyPress}
+              placeholder="Type your message... 💭"
+              disabled={loading}
+              className="flex-1 p-3 bg-transparent text-gray-800 placeholder:text-gray-500 focus:outline-none text-sm"
+            />
+            <button
+              onClick={handleStreamChat}
+              disabled={loading || !message.trim()}
+              className="bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 disabled:from-gray-300 disabled:to-gray-400 text-white rounded-xl p-3 flex items-center justify-center transition-all duration-300 ease-in-out transform hover:scale-105 disabled:scale-100 disabled:cursor-not-allowed shadow-sm"
+            >
+              {loading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                "Send"
+              )}
+            </button>
+          </div>
+        </div>
       </footer>
     </div>
   );
