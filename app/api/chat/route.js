@@ -15,8 +15,6 @@ export async function POST(request){
                 {role: 'user', content: message}
             ]
         })
-
-        console.log(completion);
         
         return Response.json({
             response: completion.choices[0].message.content,
